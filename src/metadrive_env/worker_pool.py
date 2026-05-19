@@ -48,6 +48,9 @@ class EnvWorkerPool:
         if verbose:
             print(f'EnvWorkerPool: launching {n_worlds} worlds × {n_agents} agents...', flush=True)
 
+        # Start workers sequentially and wait for each to be ready before starting next.
+        # Simultaneous init causes Xvfb connection contention when n_worlds >= 6.
+        self._current_obs: list[dict] = []
         for i in range(n_worlds):
             aq = ctx.Queue()
             oq = ctx.Queue()
@@ -61,12 +64,12 @@ class EnvWorkerPool:
             self._obs_qs.append(oq)
             self._procs.append(p)
 
-        # Collect initial observations from all workers
-        self._current_obs: list[dict] = []
-        for i in range(n_worlds):
-            msg, obs = self._obs_qs[i].get(timeout=120)
-            assert msg == 'ready', f"Worker {i} sent unexpected message: {msg}"
+            # Wait for this worker before starting the next
+            msg, obs = oq.get(timeout=120)
+            assert msg == 'ready', f"Worker {i} failed: {msg}"
             self._current_obs.append(obs)
+            if verbose:
+                print(f'  worker {i}/{n_worlds} ready', flush=True)
 
         if verbose:
             print(f'EnvWorkerPool: {n_worlds} worlds ready.', flush=True)
